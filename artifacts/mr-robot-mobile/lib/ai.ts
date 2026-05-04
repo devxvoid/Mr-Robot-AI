@@ -1,17 +1,22 @@
-import { Message, AIProvider, AppSettings } from '@/types';
+import { Message, AIProvider, AppSettings, Skill } from '@/types';
+
+interface RuntimeContext {
+  skills?: Skill[];
+}
 
 export async function sendMessage(
   messages: Message[],
   provider: AIProvider,
   settings: AppSettings,
-  onChunk?: (chunk: string) => void
+  onChunk?: (chunk: string) => void,
+  runtimeContext: RuntimeContext = {}
 ): Promise<string> {
   const apiMessages = messages.map(m => ({
     role: m.role,
     content: m.content,
   }));
 
-  const systemPrompt = buildSystemPrompt(settings);
+  const systemPrompt = buildSystemPrompt(settings, runtimeContext.skills ?? []);
 
   if (provider.type === 'anthropic') {
     return sendAnthropicMessage(apiMessages, systemPrompt, provider, settings, onChunk);
@@ -67,7 +72,7 @@ export async function pingProvider(provider: AIProvider): Promise<{ ok: boolean;
   }
 }
 
-function buildSystemPrompt(settings: AppSettings): string {
+function buildSystemPrompt(settings: AppSettings, skills: Skill[] = []): string {
   const name = settings.agentName || 'Mr. Robot';
   const style = settings.responseStyle || 'balanced';
   const styleGuide = style === 'concise'
@@ -76,9 +81,16 @@ function buildSystemPrompt(settings: AppSettings): string {
     ? 'Be thorough and comprehensive in your explanations.'
     : 'Balance brevity with clarity.';
 
+  const activeSkills = skills.filter(skill => skill.active).slice(0, 6);
+  const skillBlock = activeSkills.length
+    ? `\n\nActive Hermes-style skills you may use when relevant:\n${activeSkills
+        .map(skill => `- ${skill.title} v${skill.version}: ${skill.summary}\n  Instructions: ${skill.instructions}`)
+        .join('\n')}`
+    : '';
+
   return `You are ${name}, an advanced AI operating system. You are highly capable, direct, and precise. ${styleGuide}
 
-You have deep knowledge of systems, security, programming, and technology. You speak with authority and clarity. Avoid unnecessary pleasantries.`;
+You have deep knowledge of systems, security, programming, and technology. You speak with authority and clarity. Avoid unnecessary pleasantries.${skillBlock}`;
 }
 
 async function sendOpenAICompatibleMessage(
