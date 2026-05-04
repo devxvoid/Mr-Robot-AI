@@ -175,7 +175,7 @@ export default function ChatScreen() {
   const {
     conversations, activeConversationId, setActiveConversationId,
     addConversation, addMessage, updateMessage, updateConversation,
-    activeProvider, settings, memories,
+    activeProvider, settings, memories, skills,
   } = useApp();
 
   const [input, setInput] = useState('');
@@ -249,6 +249,7 @@ export default function ChatScreen() {
 
     try {
       const activeMemories = memories.filter(m => m.active);
+      const activeSkills = skills.filter(s => s.active);
       let msgContext = prevMessages.slice(-20);
 
       if (activeMemories.length > 0 && msgContext.length === 1) {
@@ -262,9 +263,9 @@ export default function ChatScreen() {
         await sendMessage(msgContext, activeProvider, settings, (chunk) => {
           accumulated += chunk;
           updateMessage(convId!, assistantMsgId, { content: accumulated, isStreaming: true });
-        });
+        }, { skills: activeSkills });
       } else {
-        accumulated = await sendMessage(msgContext, activeProvider, settings);
+        accumulated = await sendMessage(msgContext, activeProvider, settings, undefined, { skills: activeSkills });
       }
 
       updateMessage(convId!, assistantMsgId, {
@@ -289,7 +290,7 @@ export default function ChatScreen() {
       setIsLoading(false);
       scrollToBottom();
     }
-  }, [input, isLoading, activeProvider, activeConversationId, activeConversation, conversations, settings, memories]);
+  }, [input, isLoading, activeProvider, activeConversationId, activeConversation, conversations, settings, memories, skills]);
 
   const handleNewChat = useCallback(() => {
     setActiveConversationId(null);
