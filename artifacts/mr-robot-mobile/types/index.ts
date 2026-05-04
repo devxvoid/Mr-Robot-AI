@@ -25,6 +25,18 @@ export interface Memory {
   updatedAt: string;
 }
 
+export interface Skill {
+  id: string;
+  title: string;
+  summary: string;
+  category: string;
+  instructions: string;
+  version: string;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface AppSettings {
   agentName: string;
   theme: "dark" | "light" | "system";

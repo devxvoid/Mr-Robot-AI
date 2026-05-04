@@ -3,11 +3,12 @@ import React, {
   createContext, useCallback, useContext, useEffect, useState,
 } from 'react';
 
-import { AIProvider, AppSettings, Conversation, Memory, Message } from '@/types';
+import { AIProvider, AppSettings, Conversation, Memory, Message, Skill } from '@/types';
 
 const KEYS = {
   CONVERSATIONS: 'mrrobot_conversations',
   MEMORIES: 'mrrobot_memories',
+  SKILLS: 'mrrobot_skills',
   SETTINGS: 'mrrobot_settings',
   PROVIDERS: 'mrrobot_providers',
   ACTIVE_CONV: 'mrrobot_active_conv',
@@ -22,6 +23,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   responseStyle: 'balanced',
 };
 
+const now = () => new Date().toISOString();
+
 const DEFAULT_MEMORIES: Memory[] = [
   {
     id: 'm1',
@@ -29,8 +32,8 @@ const DEFAULT_MEMORIES: Memory[] = [
     content: 'I am an advanced AI operating system. I help with coding, security, research, and complex problem solving.',
     category: 'system',
     active: true,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    createdAt: now(),
+    updatedAt: now(),
   },
   {
     id: 'm2',
@@ -38,14 +41,51 @@ const DEFAULT_MEMORIES: Memory[] = [
     content: 'Be direct and precise. Avoid filler words. Prioritize accuracy over brevity when dealing with technical topics.',
     category: 'behavior',
     active: true,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    createdAt: now(),
+    updatedAt: now(),
+  },
+];
+
+const DEFAULT_SKILLS: Skill[] = [
+  {
+    id: 'skill_systematic_debugging',
+    title: 'Systematic Debugging',
+    summary: 'Triage build, runtime, and configuration failures with evidence-first debugging.',
+    category: 'engineering',
+    instructions: 'When debugging, first identify the exact failing command, error message, environment, and recent change. Propose the smallest safe fix first. Include verification steps and avoid guessing when logs are available.',
+    version: '1.0.0',
+    active: true,
+    createdAt: now(),
+    updatedAt: now(),
+  },
+  {
+    id: 'skill_android_release_review',
+    title: 'Android Release Review',
+    summary: 'Check Android app readiness before APK, internal testing, or Play Store release.',
+    category: 'android',
+    instructions: 'Before recommending release, check build reproducibility, permissions, signing, app icon, package name, crash paths, offline states, network security, storage behavior, and user-facing polish.',
+    version: '1.0.0',
+    active: true,
+    createdAt: now(),
+    updatedAt: now(),
+  },
+  {
+    id: 'skill_prompt_architect',
+    title: 'Prompt Architect',
+    summary: 'Convert vague app ideas into clear implementation-ready prompts and specs.',
+    category: 'product',
+    instructions: 'When writing implementation prompts, include goal, target platform, architecture, UI requirements, data model, feature scope, error handling, testing, build commands, and acceptance criteria.',
+    version: '1.0.0',
+    active: true,
+    createdAt: now(),
+    updatedAt: now(),
   },
 ];
 
 interface AppContextType {
   conversations: Conversation[];
   memories: Memory[];
+  skills: Skill[];
   settings: AppSettings;
   providers: AIProvider[];
   activeConversationId: string | null;
@@ -59,6 +99,10 @@ interface AppContextType {
   addMemory: (mem: Memory) => void;
   updateMemory: (id: string, updates: Partial<Memory>) => void;
   deleteMemory: (id: string) => void;
+  addSkill: (skill: Skill) => void;
+  updateSkill: (id: string, updates: Partial<Skill>) => void;
+  deleteSkill: (id: string) => void;
+  resetSkills: () => void;
   updateSettings: (updates: Partial<AppSettings>) => void;
   addProvider: (provider: AIProvider) => void;
   updateProvider: (id: string, updates: Partial<AIProvider>) => void;
@@ -86,6 +130,7 @@ async function save(key: string, value: unknown): Promise<void> {
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [memories, setMemories] = useState<Memory[]>(DEFAULT_MEMORIES);
+  const [skills, setSkills] = useState<Skill[]>(DEFAULT_SKILLS);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [providers, setProviders] = useState<AIProvider[]>([]);
   const [activeConversationId, setActiveConversationIdState] = useState<string | null>(null);
@@ -93,15 +138,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     (async () => {
-      const [convs, mems, setts, provs, activeId] = await Promise.all([
+      const [convs, mems, skls, setts, provs, activeId] = await Promise.all([
         load<Conversation[]>(KEYS.CONVERSATIONS, []),
         load<Memory[]>(KEYS.MEMORIES, DEFAULT_MEMORIES),
+        load<Skill[]>(KEYS.SKILLS, DEFAULT_SKILLS),
         load<AppSettings>(KEYS.SETTINGS, DEFAULT_SETTINGS),
         load<AIProvider[]>(KEYS.PROVIDERS, []),
         load<string | null>(KEYS.ACTIVE_CONV, null),
       ]);
       setConversations(convs);
       setMemories(mems.length ? mems : DEFAULT_MEMORIES);
+      setSkills(skls.length ? skls : DEFAULT_SKILLS);
       setSettings({ ...DEFAULT_SETTINGS, ...setts });
       setProviders(provs);
       if (activeId && convs.some(c => c.id === activeId)) {
@@ -127,7 +174,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const updateConversation = useCallback((id: string, updates: Partial<Conversation>) => {
     setConversations(prev => {
       const next = prev.map(c =>
-        c.id === id ? { ...c, ...updates, updatedAt: new Date().toISOString() } : c
+        c.id === id ? { ...c, ...updates, updatedAt: now() } : c
       );
       save(KEYS.CONVERSATIONS, next);
       return next;
@@ -160,7 +207,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setConversations(prev => {
       const next = prev.map(c =>
         c.id === convId
-          ? { ...c, messages: [...c.messages, msg], updatedAt: new Date().toISOString() }
+          ? { ...c, messages: [...c.messages, msg], updatedAt: now() }
           : c
       );
       save(KEYS.CONVERSATIONS, next);
@@ -175,7 +222,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           ? {
               ...c,
               messages: c.messages.map(m => (m.id === msgId ? { ...m, ...updates } : m)),
-              updatedAt: new Date().toISOString(),
+              updatedAt: now(),
             }
           : c
       );
@@ -195,7 +242,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const updateMemory = useCallback((id: string, updates: Partial<Memory>) => {
     setMemories(prev => {
       const next = prev.map(m =>
-        m.id === id ? { ...m, ...updates, updatedAt: new Date().toISOString() } : m
+        m.id === id ? { ...m, ...updates, updatedAt: now() } : m
       );
       save(KEYS.MEMORIES, next);
       return next;
@@ -208,6 +255,37 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       save(KEYS.MEMORIES, next);
       return next;
     });
+  }, []);
+
+  const addSkill = useCallback((skill: Skill) => {
+    setSkills(prev => {
+      const next = [skill, ...prev];
+      save(KEYS.SKILLS, next);
+      return next;
+    });
+  }, []);
+
+  const updateSkill = useCallback((id: string, updates: Partial<Skill>) => {
+    setSkills(prev => {
+      const next = prev.map(s =>
+        s.id === id ? { ...s, ...updates, updatedAt: now() } : s
+      );
+      save(KEYS.SKILLS, next);
+      return next;
+    });
+  }, []);
+
+  const deleteSkill = useCallback((id: string) => {
+    setSkills(prev => {
+      const next = prev.filter(s => s.id !== id);
+      save(KEYS.SKILLS, next);
+      return next;
+    });
+  }, []);
+
+  const resetSkills = useCallback(() => {
+    setSkills(DEFAULT_SKILLS);
+    save(KEYS.SKILLS, DEFAULT_SKILLS);
   }, []);
 
   const updateSettings = useCallback((updates: Partial<AppSettings>) => {
@@ -256,11 +334,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   return (
     <AppContext.Provider
       value={{
-        conversations, memories, settings, providers,
+        conversations, memories, skills, settings, providers,
         activeConversationId, setActiveConversationId,
         addConversation, updateConversation, deleteConversation, clearAllConversations,
         addMessage, updateMessage,
         addMemory, updateMemory, deleteMemory,
+        addSkill, updateSkill, deleteSkill, resetSkills,
         updateSettings,
         addProvider, updateProvider, deleteProvider,
         activeProvider,
