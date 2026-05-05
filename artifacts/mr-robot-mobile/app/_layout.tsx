@@ -8,7 +8,8 @@ import {
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Text, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -16,9 +17,10 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AppProvider } from '@/contexts/AppContext';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 
-SplashScreen.preventAutoHideAsync();
+void SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
 const queryClient = new QueryClient();
+const STARTUP_TIMEOUT_MS = 3500;
 
 function RootLayoutNav() {
   return (
@@ -28,7 +30,19 @@ function RootLayoutNav() {
   );
 }
 
+function StartupFallback({ message }: { message: string }) {
+  return (
+    <View style={{ flex: 1, backgroundColor: '#000000', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+      <ActivityIndicator size="large" color="#00FF41" />
+      <Text style={{ color: '#A3A3A3', marginTop: 16, textAlign: 'center', fontSize: 14 }}>
+        {message}
+      </Text>
+    </View>
+  );
+}
+
 export default function RootLayout() {
+  const [fontTimeoutReached, setFontTimeoutReached] = useState(false);
   const [fontsLoaded, fontError] = useFonts({
     Inter_400Regular,
     Inter_500Medium,
@@ -36,13 +50,35 @@ export default function RootLayout() {
     Inter_700Bold,
   });
 
-  useEffect(() => {
-    if (fontsLoaded || fontError) {
-      SplashScreen.hideAsync();
-    }
-  }, [fontsLoaded, fontError]);
+  const canRenderApp = useMemo(
+    () => fontsLoaded || !!fontError || fontTimeoutReached,
+    [fontsLoaded, fontError, fontTimeoutReached]
+  );
 
-  if (!fontsLoaded && !fontError) return null;
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      setFontTimeoutReached(true);
+    }, STARTUP_TIMEOUT_MS);
+
+    return () => clearTimeout(timeout);
+  }, []);
+
+  useEffect(() => {
+    if (!canRenderApp) return;
+    void SplashScreen.hideAsync().catch(() => undefined);
+  }, [canRenderApp]);
+
+  useEffect(() => {
+    const hardSplashTimeout = setTimeout(() => {
+      void SplashScreen.hideAsync().catch(() => undefined);
+    }, STARTUP_TIMEOUT_MS + 1500);
+
+    return () => clearTimeout(hardSplashTimeout);
+  }, []);
+
+  if (!canRenderApp) {
+    return <StartupFallback message="Starting Mr. Robot..." />;
+  }
 
   return (
     <SafeAreaProvider>
