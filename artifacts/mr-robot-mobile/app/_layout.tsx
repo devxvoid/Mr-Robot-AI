@@ -14,13 +14,13 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-import { AppProvider } from '@/contexts/AppContext';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { AppProvider } from '@/contexts/AppContext';
 
 void SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
 const queryClient = new QueryClient();
-const STARTUP_TIMEOUT_MS = 3500;
+const STARTUP_TIMEOUT_MS = 1200;
 
 function RootLayoutNav() {
   return (
@@ -59,7 +59,7 @@ function StartupFallback({ message }: { message: string }) {
 }
 
 export default function RootLayout() {
-  const [fontTimeoutReached, setFontTimeoutReached] = useState(false);
+  const [bootTimeoutReached, setBootTimeoutReached] = useState(false);
   const [fontsLoaded, fontError] = useFonts({
     Inter_400Regular,
     Inter_500Medium,
@@ -68,30 +68,25 @@ export default function RootLayout() {
   });
 
   const canRenderApp = useMemo(
-    () => fontsLoaded || !!fontError || fontTimeoutReached,
-    [fontsLoaded, fontError, fontTimeoutReached]
+    () => fontsLoaded || !!fontError || bootTimeoutReached,
+    [fontsLoaded, fontError, bootTimeoutReached]
   );
 
   useEffect(() => {
+    void SplashScreen.hideAsync().catch(() => undefined);
     const timeout = setTimeout(() => {
-      setFontTimeoutReached(true);
+      setBootTimeoutReached(true);
+      void SplashScreen.hideAsync().catch(() => undefined);
     }, STARTUP_TIMEOUT_MS);
 
     return () => clearTimeout(timeout);
   }, []);
 
   useEffect(() => {
-    if (!canRenderApp) return;
-    void SplashScreen.hideAsync().catch(() => undefined);
-  }, [canRenderApp]);
-
-  useEffect(() => {
-    const hardSplashTimeout = setTimeout(() => {
+    if (canRenderApp) {
       void SplashScreen.hideAsync().catch(() => undefined);
-    }, STARTUP_TIMEOUT_MS + 1500);
-
-    return () => clearTimeout(hardSplashTimeout);
-  }, []);
+    }
+  }, [canRenderApp]);
 
   if (!canRenderApp) {
     return <StartupFallback message="Starting Mr. Robot..." />;
