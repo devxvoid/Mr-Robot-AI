@@ -1,0 +1,236 @@
+name: Fix & Build Android APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: "APK build type"
+        required: true
+        default: "debug"
+        type: choice
+        options:
+          - debug
+          - release
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: fix-build-android-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "24"
+  JAVA_VERSION: "17"
+  MOBILE_DIR: artifacts/mr-robot-mobile
+  LOG_DIR: build-logs
+  EXPO_NO_TELEMETRY: "1"
+  CI: "1"
+
+jobs:
+  fix-and-build:
+    name: Apply Fixes & Build APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create build log directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$LOG_DIR"
+          {
+            echo "Repository: $GITHUB_REPOSITORY"
+            echo "Branch/ref: $GITHUB_REF"
+            echo "Commit: $GITHUB_SHA"
+            echo "Runner: $(uname -a)"
+            echo "Build type: ${{ github.event.inputs.build_type }}"
+          } | tee "$LOG_DIR/00-environment.txt"
+
+      # ──────────────────────────────────────────────────────────────
+      # FIX 1: Add expo-splash-screen to app.json plugins
+      # Without this, the native splash screen is never wired up to
+      # the JS hideAsync() call, causing the app to freeze on startup.
+      # ──────────────────────────────────────────────────────────────
+      - name: Fix 1 — Add expo-splash-screen plugin to app.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_JSON="$MOBILE_DIR/app.json"
+
+          echo "Before fix:"
+          jq '.expo.plugins' "$APP_JSON"
+
+          # Add "expo-splash-screen" only if it's not already present
+          if jq -e '.expo.plugins | map(if type == "string" then . else .[0] end) | index("expo-splash-screen")' "$APP_JSON" > /dev/null 2>&1; then
+            echo "expo-splash-screen already in plugins, skipping."
+          else
+            jq '.expo.plugins += ["expo-splash-screen"]' "$APP_JSON" > /tmp/app.json.tmp
+            mv /tmp/app.json.tmp "$APP_JSON"
+            echo "expo-splash-screen added to plugins."
+          fi
+
+          echo "After fix:"
+          jq '.expo.plugins' "$APP_JSON"
+          {
+            echo "Fix 1: expo-splash-screen plugin"
+            jq '.expo.plugins' "$APP_JSON"
+          } | tee "$LOG_DIR/fix1-splash-screen.log"
+
+      # ──────────────────────────────────────────────────────────────
+      # FIX 2: Remove react-native-worklets
+      # react-native-worklets 0.5.1 conflicts with react-native-reanimated
+      # 4.x under New Architecture and causes a JS crash at startup.
+      # ──────────────────────────────────────────────────────────────
+      - name: Fix 2 — Remove conflicting react-native-worklets
+        shell: bash
+        run: |
+          set -euo pipefail
+          PKG_JSON="$MOBILE_DIR/package.json"
+
+          echo "Before fix (devDependencies with worklets):"
+          jq '.devDependencies | with_entries(select(.key | test("worklet")))' "$PKG_JSON"
+
+          if jq -e '.devDependencies["react-native-worklets"]' "$PKG_JSON" > /dev/null 2>&1; then
+            jq 'del(.devDependencies["react-native-worklets"])' "$PKG_JSON" > /tmp/pkg.json.tmp
+            mv /tmp/pkg.json.tmp "$PKG_JSON"
+            echo "react-native-worklets removed from devDependencies."
+          else
+            echo "react-native-worklets not found in devDependencies, skipping."
+          fi
+
+          if jq -e '.dependencies["react-native-worklets"]' "$PKG_JSON" > /dev/null 2>&1; then
+            jq 'del(.dependencies["react-native-worklets"])' "$PKG_JSON" > /tmp/pkg.json.tmp
+            mv /tmp/pkg.json.tmp "$PKG_JSON"
+            echo "react-native-worklets removed from dependencies."
+          else
+            echo "react-native-worklets not in dependencies either."
+          fi
+
+          {
+            echo "Fix 2: react-native-worklets removed"
+            jq '.devDependencies | with_entries(select(.key | test("worklet")))' "$PKG_JSON"
+          } | tee "$LOG_DIR/fix2-remove-worklets.log"
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.25.0
+          run_install: false
+
+      - name: Configure pnpm store cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "PNPM_STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_ENV"
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PNPM_STORE_PATH }}
+          key: pnpm-store-${{ runner.os }}-fix-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-store-${{ runner.os }}-
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/**.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      # Install with --no-frozen-lockfile because package.json was patched above
+      - name: Install dependencies (with patched package.json)
+        shell: bash
+        run: |
+          set -o pipefail
+          pnpm install --no-frozen-lockfile 2>&1 | tee "$LOG_DIR/01-pnpm-install.log"
+
+      - name: Typecheck workspace
+        shell: bash
+        run: |
+          set -o pipefail
+          pnpm run typecheck 2>&1 | tee "$LOG_DIR/02-typecheck.log" || true
+
+      - name: Prebuild Expo Android project
+        working-directory: ${{ env.MOBILE_DIR }}
+        shell: bash
+        run: |
+          set -o pipefail
+          rm -rf android
+          pnpm exec expo prebuild --platform android --clean --no-install 2>&1 | tee "../../$LOG_DIR/03-expo-prebuild.log"
+
+      - name: Show generated Android project structure
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "Generated Android files:"
+            find "$MOBILE_DIR/android" -maxdepth 3 -type f | sort | sed 's#^#- #' | head -300
+          } | tee "$LOG_DIR/04-android-structure.log"
+
+      - name: Make Gradle executable
+        shell: bash
+        run: chmod +x "$MOBILE_DIR/android/gradlew"
+
+      - name: Build Android APK
+        working-directory: ${{ env.MOBILE_DIR }}/android
+        shell: bash
+        run: |
+          set -o pipefail
+          BUILD_TYPE="${{ github.event.inputs.build_type }}"
+          if [ "$BUILD_TYPE" = "release" ]; then
+            ./gradlew clean assembleRelease --stacktrace --info 2>&1 | tee "../../../$LOG_DIR/05-gradle-assemble-release.log"
+          else
+            ./gradlew clean assembleDebug --stacktrace --info 2>&1 | tee "../../../$LOG_DIR/05-gradle-assemble-debug.log"
+          fi
+
+      - name: Collect APK outputs
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p apk-output
+          find "$MOBILE_DIR/android/app/build/outputs/apk" -type f -name "*.apk" -print \
+            -exec cp {} apk-output/ \; | tee "$LOG_DIR/06-apk-files.log" || true
+          echo "APK output directory:"
+          ls -lah apk-output | tee -a "$LOG_DIR/06-apk-files.log"
+
+      - name: Upload APK artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mr-robot-mobile-fixed-apk-${{ github.event.inputs.build_type }}
+          path: apk-output/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fix-build-logs
+          path: build-logs/
+          if-no-files-found: warn
+          retention-days: 14
