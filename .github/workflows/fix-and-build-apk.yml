@@ -32,7 +32,7 @@ jobs:
   fix-and-build:
     name: Apply Fixes & Build APK
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 70
 
     steps:
       - name: Checkout repository
@@ -51,70 +51,130 @@ jobs:
             echo "Build type: ${{ github.event.inputs.build_type }}"
           } | tee "$LOG_DIR/00-environment.txt"
 
+      - name: Validate mobile project exists
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ ! -d "$MOBILE_DIR" ]; then
+            echo "ERROR: Mobile directory not found: $MOBILE_DIR"
+            exit 1
+          fi
+
+          if [ ! -f "$MOBILE_DIR/package.json" ]; then
+            echo "ERROR: package.json not found in $MOBILE_DIR"
+            exit 1
+          fi
+
+          if [ ! -f "$MOBILE_DIR/app.json" ]; then
+            echo "ERROR: app.json not found in $MOBILE_DIR"
+            exit 1
+          fi
+
+          {
+            echo "Mobile project found."
+            echo "Files:"
+            ls -la "$MOBILE_DIR"
+          } | tee "$LOG_DIR/00-mobile-project-check.log"
+
       # ──────────────────────────────────────────────────────────────
-      # FIX 1: Add expo-splash-screen to app.json plugins
-      # Without this, the native splash screen is never wired up to
-      # the JS hideAsync() call, causing the app to freeze on startup.
+      # FIX 1: Ensure expo-splash-screen plugin exists.
+      # This helps native splash + JS SplashScreen.hideAsync() work correctly.
       # ──────────────────────────────────────────────────────────────
-      - name: Fix 1 — Add expo-splash-screen plugin to app.json
+      - name: Fix 1 — Ensure expo-splash-screen plugin exists
         shell: bash
         run: |
           set -euo pipefail
           APP_JSON="$MOBILE_DIR/app.json"
 
           echo "Before fix:"
-          jq '.expo.plugins' "$APP_JSON"
+          jq '.expo.plugins' "$APP_JSON" | tee "$LOG_DIR/fix1-before-plugins.log"
 
-          # Add "expo-splash-screen" only if it's not already present
+          if jq -e '.expo.plugins' "$APP_JSON" > /dev/null 2>&1; then
+            echo "plugins array exists."
+          else
+            jq '.expo.plugins = []' "$APP_JSON" > /tmp/app.json.tmp
+            mv /tmp/app.json.tmp "$APP_JSON"
+            echo "plugins array created."
+          fi
+
           if jq -e '.expo.plugins | map(if type == "string" then . else .[0] end) | index("expo-splash-screen")' "$APP_JSON" > /dev/null 2>&1; then
-            echo "expo-splash-screen already in plugins, skipping."
+            echo "expo-splash-screen already exists. Skipping."
           else
             jq '.expo.plugins += ["expo-splash-screen"]' "$APP_JSON" > /tmp/app.json.tmp
             mv /tmp/app.json.tmp "$APP_JSON"
-            echo "expo-splash-screen added to plugins."
+            echo "expo-splash-screen added."
           fi
 
           echo "After fix:"
-          jq '.expo.plugins' "$APP_JSON"
-          {
-            echo "Fix 1: expo-splash-screen plugin"
-            jq '.expo.plugins' "$APP_JSON"
-          } | tee "$LOG_DIR/fix1-splash-screen.log"
+          jq '.expo.plugins' "$APP_JSON" | tee "$LOG_DIR/fix1-after-plugins.log"
 
       # ──────────────────────────────────────────────────────────────
-      # FIX 2: Remove react-native-worklets
-      # react-native-worklets 0.5.1 conflicts with react-native-reanimated
-      # 4.x under New Architecture and causes a JS crash at startup.
+      # FIX 2: Keep New Architecture enabled.
+      # Reanimated 4.x + react-native-worklets require New Architecture.
+      # Do NOT remove react-native-worklets.
       # ──────────────────────────────────────────────────────────────
-      - name: Fix 2 — Remove conflicting react-native-worklets
+      - name: Fix 2 — Ensure New Architecture stays enabled
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_JSON="$MOBILE_DIR/app.json"
+
+          jq '.expo.newArchEnabled = true' "$APP_JSON" > /tmp/app.json.tmp
+          mv /tmp/app.json.tmp "$APP_JSON"
+
+          {
+            echo "newArchEnabled:"
+            jq '.expo.newArchEnabled' "$APP_JSON"
+          } | tee "$LOG_DIR/fix2-new-architecture.log"
+
+      # ──────────────────────────────────────────────────────────────
+      # FIX 3: Remove risky React Compiler experiment only.
+      # Do NOT remove typedRoutes.
+      # ──────────────────────────────────────────────────────────────
+      - name: Fix 3 — Disable React Compiler experiment
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_JSON="$MOBILE_DIR/app.json"
+
+          if jq -e '.expo.experiments.reactCompiler' "$APP_JSON" > /dev/null 2>&1; then
+            jq 'del(.expo.experiments.reactCompiler)' "$APP_JSON" > /tmp/app.json.tmp
+            mv /tmp/app.json.tmp "$APP_JSON"
+            echo "reactCompiler experiment removed."
+          else
+            echo "reactCompiler experiment not present. Skipping."
+          fi
+
+          {
+            echo "experiments:"
+            jq '.expo.experiments' "$APP_JSON"
+          } | tee "$LOG_DIR/fix3-experiments.log"
+
+      # ──────────────────────────────────────────────────────────────
+      # FIX 4: Verify react-native-worklets remains installed.
+      # Reanimated Gradle build fails if worklets is missing.
+      # ──────────────────────────────────────────────────────────────
+      - name: Fix 4 — Verify react-native-worklets is kept
         shell: bash
         run: |
           set -euo pipefail
           PKG_JSON="$MOBILE_DIR/package.json"
 
-          echo "Before fix (devDependencies with worklets):"
-          jq '.devDependencies | with_entries(select(.key | test("worklet")))' "$PKG_JSON"
-
-          if jq -e '.devDependencies["react-native-worklets"]' "$PKG_JSON" > /dev/null 2>&1; then
-            jq 'del(.devDependencies["react-native-worklets"])' "$PKG_JSON" > /tmp/pkg.json.tmp
-            mv /tmp/pkg.json.tmp "$PKG_JSON"
-            echo "react-native-worklets removed from devDependencies."
-          else
-            echo "react-native-worklets not found in devDependencies, skipping."
-          fi
-
-          if jq -e '.dependencies["react-native-worklets"]' "$PKG_JSON" > /dev/null 2>&1; then
-            jq 'del(.dependencies["react-native-worklets"])' "$PKG_JSON" > /tmp/pkg.json.tmp
-            mv /tmp/pkg.json.tmp "$PKG_JSON"
-            echo "react-native-worklets removed from dependencies."
-          else
-            echo "react-native-worklets not in dependencies either."
-          fi
-
           {
-            echo "Fix 2: react-native-worklets removed"
+            echo "Worklets dependency check before install:"
             jq '.devDependencies | with_entries(select(.key | test("worklet")))' "$PKG_JSON"
-          } | tee "$LOG_DIR/fix2-remove-worklets.log"
+            jq '.dependencies | with_entries(select(.key | test("worklet")))' "$PKG_JSON"
+          } | tee "$LOG_DIR/fix4-worklets-check.log"
+
+          if jq -e '.devDependencies["react-native-worklets"] // .dependencies["react-native-worklets"]' "$PKG_JSON" > /dev/null 2>&1; then
+            echo "react-native-worklets exists in package.json."
+          else
+            echo "ERROR: react-native-worklets is missing. Reanimated 4 requires it."
+            echo "Add this to artifacts/mr-robot-mobile/package.json:"
+            echo '"react-native-worklets": "0.5.1"'
+            exit 1
+          fi
 
       - name: Setup Java 17
         uses: actions/setup-java@v4
@@ -146,7 +206,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.PNPM_STORE_PATH }}
-          key: pnpm-store-${{ runner.os }}-fix-${{ hashFiles('pnpm-lock.yaml') }}
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: |
             pnpm-store-${{ runner.os }}-
 
@@ -156,22 +216,41 @@ jobs:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ hashFiles('**/**.gradle*', '**/gradle-wrapper.properties') }}
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
           restore-keys: |
             gradle-${{ runner.os }}-
 
-      # Install with --no-frozen-lockfile because package.json was patched above
-      - name: Install dependencies (with patched package.json)
+      - name: Install dependencies
         shell: bash
         run: |
           set -o pipefail
-          pnpm install --no-frozen-lockfile 2>&1 | tee "$LOG_DIR/01-pnpm-install.log"
+          pnpm install --frozen-lockfile 2>&1 | tee "$LOG_DIR/01-pnpm-install.log"
+
+      - name: Verify installed worklets package
+        shell: bash
+        run: |
+          set -o pipefail
+          {
+            echo "Checking installed react-native-worklets package:"
+            pnpm --filter @workspace/mr-robot-mobile list react-native-worklets || true
+            echo
+            echo "Checking installed react-native-reanimated package:"
+            pnpm --filter @workspace/mr-robot-mobile list react-native-reanimated || true
+          } | tee "$LOG_DIR/01b-installed-worklets-check.log"
+
+          if [ ! -d "node_modules/.pnpm" ]; then
+            echo "WARNING: node_modules/.pnpm not found."
+          fi
+
+          if ! find node_modules -path "*react-native-worklets*" -maxdepth 8 | head -20 | tee "$LOG_DIR/01c-worklets-files.log"; then
+            echo "WARNING: Could not scan worklets files."
+          fi
 
       - name: Typecheck workspace
         shell: bash
         run: |
           set -o pipefail
-          pnpm run typecheck 2>&1 | tee "$LOG_DIR/02-typecheck.log" || true
+          pnpm run typecheck 2>&1 | tee "$LOG_DIR/02-typecheck.log"
 
       - name: Prebuild Expo Android project
         working-directory: ${{ env.MOBILE_DIR }}
@@ -188,11 +267,19 @@ jobs:
           {
             echo "Generated Android files:"
             find "$MOBILE_DIR/android" -maxdepth 3 -type f | sort | sed 's#^#- #' | head -300
+            echo
+            echo "Gradle wrapper:"
+            ls -la "$MOBILE_DIR/android/gradlew" || true
+            echo
+            echo "Android app build.gradle:"
+            sed -n '1,220p' "$MOBILE_DIR/android/app/build.gradle" || true
           } | tee "$LOG_DIR/04-android-structure.log"
 
       - name: Make Gradle executable
         shell: bash
-        run: chmod +x "$MOBILE_DIR/android/gradlew"
+        run: |
+          set -euo pipefail
+          chmod +x "$MOBILE_DIR/android/gradlew"
 
       - name: Build Android APK
         working-directory: ${{ env.MOBILE_DIR }}/android
@@ -200,6 +287,7 @@ jobs:
         run: |
           set -o pipefail
           BUILD_TYPE="${{ github.event.inputs.build_type }}"
+
           if [ "$BUILD_TYPE" = "release" ]; then
             ./gradlew clean assembleRelease --stacktrace --info 2>&1 | tee "../../../$LOG_DIR/05-gradle-assemble-release.log"
           else
@@ -212,8 +300,14 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p apk-output
-          find "$MOBILE_DIR/android/app/build/outputs/apk" -type f -name "*.apk" -print \
-            -exec cp {} apk-output/ \; | tee "$LOG_DIR/06-apk-files.log" || true
+
+          if [ -d "$MOBILE_DIR/android/app/build/outputs/apk" ]; then
+            find "$MOBILE_DIR/android/app/build/outputs/apk" -type f -name "*.apk" -print \
+              -exec cp {} apk-output/ \; | tee "$LOG_DIR/06-apk-files.log" || true
+          else
+            echo "APK output folder does not exist." | tee "$LOG_DIR/06-apk-files.log"
+          fi
+
           echo "APK output directory:"
           ls -lah apk-output | tee -a "$LOG_DIR/06-apk-files.log"
 
