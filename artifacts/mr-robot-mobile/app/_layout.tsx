@@ -9,7 +9,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Text, View } from 'react-native';
+import { ActivityIndicator, Text, useColorScheme, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -31,10 +31,27 @@ function RootLayoutNav() {
 }
 
 function StartupFallback({ message }: { message: string }) {
+  const colorScheme = useColorScheme();
+  const isLight = colorScheme === 'light';
   return (
-    <View style={{ flex: 1, backgroundColor: '#000000', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-      <ActivityIndicator size="large" color="#00FF41" />
-      <Text style={{ color: '#A3A3A3', marginTop: 16, textAlign: 'center', fontSize: 14 }}>
+    <View
+      style={{
+        flex: 1,
+        backgroundColor: isLight ? '#f8fafc' : '#000000',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 24,
+      }}
+    >
+      <ActivityIndicator size="large" color={isLight ? '#007AFF' : '#00FF41'} />
+      <Text
+        style={{
+          color: isLight ? '#667085' : '#A3A3A3',
+          marginTop: 16,
+          textAlign: 'center',
+          fontSize: 14,
+        }}
+      >
         {message}
       </Text>
     </View>
