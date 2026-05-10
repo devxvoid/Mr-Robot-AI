@@ -46,7 +46,6 @@ export default function TabLayout() {
         },
         // Prevent tab screens from unmounting on switch (preserves state)
         lazy: true,
-        freezeOnBlur: true,
       }}
     >
       <Tabs.Screen
