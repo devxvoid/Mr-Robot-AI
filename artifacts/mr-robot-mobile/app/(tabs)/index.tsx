@@ -302,7 +302,7 @@ export default function ChatScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   }, []);
 
-  const TAB_BAR_H = Platform.OS === 'ios' ? insets.bottom + 56 : 56;
+  const TAB_BAR_H = Platform.OS === 'ios' ? insets.bottom + 49 : 60 + insets.bottom;
 
   return (
     <KeyboardAvoidingView

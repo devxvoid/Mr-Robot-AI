@@ -62,7 +62,7 @@ export default function MemoryScreen() {
     ]);
   };
 
-  const paddingBottom = Platform.OS === 'ios' ? insets.bottom + 56 : 56 + 16;
+  const paddingBottom = (Platform.OS === 'ios' ? insets.bottom + 49 : 60 + insets.bottom) + 16;
 
   const CATEGORIES = ['system', 'behavior', 'general', 'personal', 'technical'];
   const CATEGORY_COLORS: Record<string, string> = {
