@@ -6,11 +6,13 @@ import { Platform, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useColors } from '@/hooks/useColors';
+import { useTabBarHeight } from '@/hooks/useTabBarHeight';
 
 export default function TabLayout() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const isIOS = Platform.OS === 'ios';
+  const tabBarHeight = useTabBarHeight();
 
   return (
     <Tabs
@@ -24,7 +26,9 @@ export default function TabLayout() {
           borderTopWidth: StyleSheet.hairlineWidth,
           borderTopColor: colors.border,
           elevation: 0,
-          height: isIOS ? 49 + insets.bottom : 56,
+          height: tabBarHeight,
+          // Prevent oversized hit areas and clipping
+          paddingBottom: insets.bottom,
         },
         tabBarBackground: () =>
           isIOS ? (
@@ -35,11 +39,14 @@ export default function TabLayout() {
         tabBarLabelStyle: {
           fontFamily: 'Inter_500Medium',
           fontSize: 10,
-          marginBottom: isIOS ? 0 : 2,
+          marginBottom: isIOS ? 0 : 4,
         },
         tabBarIconStyle: {
           marginTop: isIOS ? 0 : 4,
         },
+        // Prevent tab screens from unmounting on switch (preserves state)
+        lazy: true,
+        freezeOnBlur: true,
       }}
     >
       <Tabs.Screen

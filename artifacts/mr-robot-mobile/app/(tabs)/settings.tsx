@@ -15,6 +15,7 @@ import type { AIProvider } from '@/types';
 type ProviderType = AIProvider['type'];
 
 const PROVIDER_TYPES: { type: ProviderType; label: string }[] = [
+  { type: 'openrouter', label: 'OpenRouter' },
   { type: 'openai-compatible', label: 'OpenAI / Compatible' },
   { type: 'anthropic', label: 'Anthropic' },
   { type: 'gemini', label: 'Google Gemini' },
@@ -76,7 +77,7 @@ function ProviderModal({
   onSave: (p: AIProvider) => void; existing?: AIProvider | null;
 }) {
   const colors = useColors();
-  const [type, setType] = useState<ProviderType>('openai-compatible');
+  const [type, setType] = useState<ProviderType>('openrouter');
   const [name, setName] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
@@ -93,11 +94,11 @@ function ProviderModal({
         setBaseUrl(existing.baseUrl);
         setModel(existing.selectedModel);
       } else {
-        setType('openai-compatible');
+        setType('openrouter');
         setName('');
         setApiKey('');
-        setBaseUrl(DEFAULT_BASE_URLS['openai-compatible'] ?? '');
-        setModel(DEFAULT_MODELS['openai-compatible']?.[0] ?? '');
+        setBaseUrl(DEFAULT_BASE_URLS['openrouter'] ?? '');
+        setModel(DEFAULT_MODELS['openrouter']?.[0] ?? '');
       }
       setTestResult(null);
     }
@@ -190,7 +191,6 @@ function ProviderModal({
                     {
                       backgroundColor: type === pt.type ? colors.primary : colors.background,
                       borderColor: type === pt.type ? colors.primary : colors.border,
-                      flex: 1,
                     },
                   ]}
                   onPress={() => handleTypeChange(pt.type)}
@@ -222,7 +222,7 @@ function ProviderModal({
               style={[styles.input, { color: colors.foreground, backgroundColor: colors.background, borderColor: colors.border, fontFamily: 'Inter_400Regular' }]}
               value={apiKey}
               onChangeText={v => { setApiKey(v); setTestResult(null); }}
-              placeholder={type === 'anthropic' ? 'sk-ant-...' : type === 'gemini' ? 'AIza...' : 'sk-...'}
+              placeholder={type === 'anthropic' ? 'sk-ant-...' : type === 'gemini' ? 'AIza...' : type === 'openrouter' ? 'sk-or-...' : 'sk-...'}
               placeholderTextColor={colors.mutedForeground}
               secureTextEntry
               autoCapitalize="none"
@@ -230,8 +230,8 @@ function ProviderModal({
               returnKeyType="next"
             />
 
-            {/* Base URL (not for Gemini) */}
-            {type !== 'gemini' && (
+            {/* Base URL (not for Gemini or OpenRouter — they have fixed endpoints) */}
+            {type !== 'gemini' && type !== 'openrouter' && (
               <>
                 <Text style={[styles.label, { color: colors.mutedForeground, fontFamily: 'Inter_500Medium' }]}>BASE URL</Text>
                 <TextInput
@@ -348,7 +348,7 @@ export default function SettingsScreen() {
   const [agentNameEdit, setAgentNameEdit] = useState(false);
   const [agentNameVal, setAgentNameVal] = useState(settings.agentName);
 
-  const TAB_BAR_H = Platform.OS === 'ios' ? insets.bottom + 56 : 56;
+  const TAB_BAR_H = Platform.OS === 'ios' ? insets.bottom + 49 : 60 + insets.bottom;
 
   const handleSaveProvider = useCallback((p: AIProvider) => {
     if (editingProvider) {
@@ -437,6 +437,17 @@ export default function SettingsScreen() {
       {/* Appearance */}
       <SectionHeader title="APPEARANCE" />
       <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <Row
+          label="Theme"
+          value={settings.theme === 'system' ? 'System' : settings.theme === 'light' ? 'Light' : 'Dark'}
+          onPress={() => {
+            const themes: Array<'dark' | 'light' | 'system'> = ['dark', 'light', 'system'];
+            const idx = themes.indexOf(settings.theme);
+            const next = themes[(idx + 1) % themes.length];
+            updateSettings({ theme: next });
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          }}
+        />
         <Row label="AMOLED Black Background" right={
           <Switch
             value={settings.amoledBlack}
@@ -630,9 +641,9 @@ const styles = StyleSheet.create({
   modalTitle: { fontSize: 18 },
   label: { fontSize: 11, letterSpacing: 0.8, marginBottom: 6, marginTop: 14 },
   input: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15 },
-  typeRow: { flexDirection: 'row', gap: 8 },
-  typeChip: { paddingVertical: 9, borderRadius: 8, borderWidth: 1, alignItems: 'center' },
-  typeChipText: { fontSize: 10 },
+  typeRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
+  typeChip: { paddingHorizontal: 12, paddingVertical: 9, borderRadius: 8, borderWidth: 1, alignItems: 'center' },
+  typeChipText: { fontSize: 11 },
   modelChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1 },
   modelChipText: { fontSize: 12 },
   testResult: {

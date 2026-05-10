@@ -51,7 +51,7 @@ export interface AppSettings {
 export interface AIProvider {
   id: string;
   name: string;
-  type: "openai-compatible" | "anthropic" | "gemini";
+  type: "openrouter" | "openai-compatible" | "anthropic" | "gemini";
   apiKey: string;
   baseUrl: string;
   selectedModel: string;

@@ -127,7 +127,7 @@ export default function ConversationsScreen() {
 
   const handleOpen = useCallback((id: string) => {
     setActiveConversationId(id);
-    router.push('/');
+    router.navigate('/');
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   }, []);
 
@@ -168,7 +168,7 @@ export default function ConversationsScreen() {
     );
   }, [conversations.length]);
 
-  const TAB_BAR_H = Platform.OS === 'ios' ? insets.bottom + 56 : 56;
+  const TAB_BAR_H = Platform.OS === 'ios' ? insets.bottom + 49 : 60 + insets.bottom;
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
